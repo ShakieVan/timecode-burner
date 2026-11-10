@@ -259,7 +259,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(export = ExportState.Idle) }
     }
 
-    /** Copies the finished file into Movies/Timecode so it shows up in the gallery. */
+    /** Copies the finished file into DCIM/Timecode so it shows up in the gallery. */
     private suspend fun publish(tmp: File, video: VideoInfo) {
         val app = getApplication<Application>()
         val base = video.name.substringBeforeLast('.').ifBlank { "video" }
@@ -272,7 +272,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
                     put(
                         MediaStore.Video.Media.RELATIVE_PATH,
-                        Environment.DIRECTORY_MOVIES + "/Timecode",
+                        Environment.DIRECTORY_DCIM + "/Timecode",
                     )
                     put(MediaStore.Video.Media.IS_PENDING, 1)
                 }

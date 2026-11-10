@@ -43,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -65,7 +66,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,14 +84,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.IntentCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 
-private val Amber = Color(0xFFFFB547)
-private val Bg = Color(0xFF0F1115)
-private val Card = Color(0xFF181B21)
-private val CardHigh = Color(0xFF20242B)
-private val Muted = Color(0xFF9AA0A9)
-private val Line = Color(0xFF2A2F37)
+internal val Amber = Color(0xFFFFB547)
+internal val Bg = Color(0xFF0F1115)
+internal val Card = Color(0xFF181B21)
+internal val CardHigh = Color(0xFF20242B)
+internal val Muted = Color(0xFF9AA0A9)
+internal val Line = Color(0xFF2A2F37)
 
 private val Colors = darkColorScheme(
     primary = Amber,
@@ -109,6 +117,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        UpdateManager.init(this)
         if (savedInstanceState == null) handleShare(intent)
         setContent {
             MaterialTheme(colorScheme = Colors) {
@@ -143,6 +152,15 @@ private fun App(vm: MainViewModel) {
     }
     KeepScreenOn(state.export is ExportState.Running)
 
+    val update by UpdateManager.state.collectAsStateWithLifecycle()
+    val justUpdated by UpdateManager.justUpdated.collectAsStateWithLifecycle()
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    LaunchedEffect(lifecycle) {
+        if (lifecycle == Lifecycle.State.RESUMED) UpdateManager.checkIfDue()
+    }
+    val updateWaiting = update is UpdateManager.State.Available || update is UpdateManager.State.Ready
+
     Column(
         Modifier
             .fillMaxSize()
@@ -153,8 +171,18 @@ private fun App(vm: MainViewModel) {
         Header(
             showClose = state.video != null && state.export !is ExportState.Running,
             onClose = vm::clearVideo,
+            updateDot = updateWaiting,
+            onSettings = { showSettings = true },
         )
         Spacer(Modifier.height(20.dp))
+
+        if (justUpdated) {
+            PostUpdateNotice(onDone = UpdateManager::dismissJustUpdated)
+            Spacer(Modifier.height(16.dp))
+        } else if (updateWaiting && !showSettings) {
+            UpdateBanner(update, onOpen = { showSettings = true })
+            Spacer(Modifier.height(16.dp))
+        }
 
         val video = state.video
         when {
@@ -168,10 +196,19 @@ private fun App(vm: MainViewModel) {
             Notice(it, isError = true, onDismiss = vm::dismissError)
         }
     }
+
+    if (showSettings) {
+        SettingsSheet(update, onDismiss = { showSettings = false })
+    }
 }
 
 @Composable
-private fun Header(showClose: Boolean, onClose: () -> Unit) {
+private fun Header(
+    showClose: Boolean,
+    onClose: () -> Unit,
+    updateDot: Boolean,
+    onSettings: () -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -189,6 +226,20 @@ private fun Header(showClose: Boolean, onClose: () -> Unit) {
         if (showClose) {
             IconButton(onClick = onClose) {
                 Icon(Icons.Rounded.Close, contentDescription = "Anderes Video", tint = Muted)
+            }
+        }
+        IconButton(onClick = onSettings) {
+            Box {
+                Icon(Icons.Rounded.Settings, contentDescription = "Einstellungen", tint = Muted)
+                if (updateDot) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .size(9.dp)
+                            .clip(CircleShape)
+                            .background(Amber),
+                    )
+                }
             }
         }
     }
@@ -467,7 +518,7 @@ private fun DoneCard(done: ExportState.Done, onAgain: () -> Unit) {
         Text("Fertig", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Amber)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Gespeichert unter Filme/Timecode/${done.fileName}",
+            "Gespeichert unter DCIM/Timecode/${done.fileName}",
             fontSize = 13.sp,
             color = Muted,
         )
@@ -512,7 +563,7 @@ private fun DoneCard(done: ExportState.Done, onAgain: () -> Unit) {
 }
 
 @Composable
-private fun Notice(text: String, isError: Boolean, onDismiss: () -> Unit) {
+internal fun Notice(text: String, isError: Boolean, onDismiss: () -> Unit) {
     val tint = if (isError) MaterialTheme.colorScheme.error else Amber
     Row(
         Modifier

@@ -30,17 +30,28 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
 
       # versionName in app/build.gradle.kts decides the release: bump it to publish a new one.
-      - name: Read version
+      - name: Prepare release files
         id: version
         run: |
           VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
           echo "name=$VERSION" >> "$GITHUB_OUTPUT"
-          cp app/build/outputs/apk/release/app-release.apk "timecode-burner-v${VERSION}.apk"
+          mkdir -p dist
+          APK="timecode-burner-v${VERSION}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/$APK"
+          # The in-app updater refuses any APK that doesn't match this checksum.
+          (cd dist && sha256sum "$APK" > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          # Release notes: releases/v<version>.md if present, else a default text.
+          if [ -f "releases/v${VERSION}.md" ]; then
+            cp "releases/v${VERSION}.md" notes.md
+          else
+            echo "Brennt einen laufenden Timecode (MM:SS:mmm) unten links ins Video." > notes.md
+          fi
+          printf '\n\n---\n**Installieren:** APK herunterladen, öffnen und die Installation erlauben. Ab Android 10. Ab Version 1.1 geht das auch direkt in der App unter Einstellungen > Updates.\n' >> notes.md
 
       - uses: actions/upload-artifact@v4
         with:
           name: timecode-burner-apk
-          path: timecode-burner-*.apk
+          path: dist/*
 
       - name: Publish release
         if: github.event_name != 'pull_request'
@@ -49,9 +60,7 @@ jobs:
           tag_name: v${{ steps.version.outputs.name }}
           name: Timecode Burner ${{ steps.version.outputs.name }}
           target_commitish: ${{ github.sha }}
-          files: timecode-burner-*.apk
+          files: dist/*
           overwrite_files: true
-          body: |
-            Brennt einen laufenden Timecode (MM:SS:mmm) unten links ins Video.
-
-            **Installieren:** APK unten herunterladen, öffnen und Installation aus unbekannten Quellen erlauben. Ab Android 10.
+          make_latest: true
+          body_path: notes.md
