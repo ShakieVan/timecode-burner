@@ -23,8 +23,10 @@ Die fertige APK liegt unter [Releases](../../releases/latest). Herunterladen,
 # -> app/build/outputs/apk/release/app-release.apk
 ```
 
-Braucht JDK 17+ und das Android SDK (Plattform 37). Jeder Push baut die APK
-per GitHub Actions; ein Tag `v*` hängt sie automatisch an ein Release.
+Braucht JDK 17+ und das Android SDK (Plattform 37). Jeder Push auf `main`
+baut die APK per GitHub Actions und hängt sie an das Release zur aktuellen
+`versionName` (in `app/build.gradle.kts`). Neue Version = `versionName` und
+`versionCode` hochzählen.
 
 ## Hinweis zur Signatur
 
