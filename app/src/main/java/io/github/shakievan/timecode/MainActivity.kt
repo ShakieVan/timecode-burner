@@ -21,6 +21,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,13 +42,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -80,6 +85,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -134,9 +140,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleShare(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_SEND) {
-            IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-                ?.let(vm::openVideo)
+        when (intent?.action) {
+            Intent.ACTION_SEND ->
+                IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                    ?.let { vm.addVideos(listOf(it)) }
+            Intent.ACTION_SEND_MULTIPLE ->
+                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+                    ?.let { vm.addVideos(it) }
         }
     }
 }
@@ -144,13 +154,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun App(vm: MainViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) {
-        if (it != null) vm.openVideo(it)
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) {
+        vm.addVideos(it)
     }
     val pick = {
         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
     }
-    KeepScreenOn(state.export is ExportState.Running)
+    KeepScreenOn(state.running)
 
     val update by UpdateManager.state.collectAsStateWithLifecycle()
     val justUpdated by UpdateManager.justUpdated.collectAsStateWithLifecycle()
@@ -169,8 +179,8 @@ private fun App(vm: MainViewModel) {
             .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
         Header(
-            showClose = state.video != null && state.export !is ExportState.Running,
-            onClose = vm::clearVideo,
+            showClose = state.items.isNotEmpty() && !state.running,
+            onClose = vm::clearAll,
             updateDot = updateWaiting,
             onSettings = { showSettings = true },
         )
@@ -184,11 +194,11 @@ private fun App(vm: MainViewModel) {
             Spacer(Modifier.height(16.dp))
         }
 
-        val video = state.video
+        val video = state.selectedVideo
         when {
+            video != null -> Editor(state, video, vm, onAdd = pick)
             state.loading -> LoadingCard()
-            video == null -> EmptyCard(onPick = pick)
-            else -> Editor(state, video, vm)
+            else -> EmptyCard(onPick = pick)
         }
 
         state.error?.let {
@@ -218,14 +228,14 @@ private fun Header(
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Text(
-                "Brennt MM:SS:mmm unten links ins Video",
+                "Brennt MM:SS:mmm ins Video",
                 fontSize = 14.sp,
                 color = Muted,
             )
         }
         if (showClose) {
             IconButton(onClick = onClose) {
-                Icon(Icons.Rounded.Close, contentDescription = "Anderes Video", tint = Muted)
+                Icon(Icons.Rounded.Close, contentDescription = "Alle Videos entfernen", tint = Muted)
             }
         }
         IconButton(onClick = onSettings) {
@@ -267,12 +277,13 @@ private fun EmptyCard(onPick: () -> Unit) {
             Icon(Icons.Rounded.Add, contentDescription = null, tint = Amber, modifier = Modifier.size(32.dp))
         }
         Spacer(Modifier.height(18.dp))
-        Text("Video auswählen", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("Videos auswählen", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
         Text(
-            "oder aus der Galerie hierher teilen",
+            "Eins oder mehrere – oder aus der Galerie hierher teilen",
             fontSize = 14.sp,
             color = Muted,
+            textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(22.dp))
         TimecodeChip("00:00:000")
@@ -294,9 +305,10 @@ private fun LoadingCard() {
 }
 
 @Composable
-private fun Editor(state: UiState, video: VideoInfo, vm: MainViewModel) {
-    val running = state.export is ExportState.Running
+private fun Editor(state: UiState, video: VideoInfo, vm: MainViewModel, onAdd: () -> Unit) {
+    val running = state.running
     val digits = minuteDigitsFor(video.durationMs)
+    val batch = state.items.size > 1
 
     // Preview with the label rendered exactly as it will be burned in.
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -333,7 +345,6 @@ private fun Editor(state: UiState, video: VideoInfo, vm: MainViewModel) {
         value = state.positionMs.toFloat(),
         onValueChange = { vm.seek(it.toLong()) },
         valueRange = 0f..maxOf(1f, video.durationMs.toFloat()),
-        enabled = !running,
         colors = SliderDefaults.colors(
             thumbColor = Amber,
             activeTrackColor = Amber,
@@ -356,40 +367,165 @@ private fun Editor(state: UiState, video: VideoInfo, vm: MainViewModel) {
         )
     }
 
-    Spacer(Modifier.height(10.dp))
-    Text(
-        "${video.name}  ·  ${video.width}×${video.height}",
-        fontSize = 13.sp,
-        color = Muted,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
+    Spacer(Modifier.height(16.dp))
+    VideoList(state, vm, onAdd)
 
     Spacer(Modifier.height(20.dp))
-    SettingsCard(state.style, enabled = !running, vm = vm)
+    SettingsCard(state, video, enabled = !running, vm = vm)
 
     Spacer(Modifier.height(20.dp))
+    val phase = when (state.batch) {
+        BatchState.Idle -> 0
+        is BatchState.Running -> 1
+        BatchState.Finished -> 2
+    }
     AnimatedContent(
-        targetState = state.export,
-        contentKey = { it::class },
+        targetState = phase,
         transitionSpec = { fadeIn() togetherWith fadeOut() },
         label = "export",
-    ) { export ->
-        when (export) {
-            ExportState.Idle -> PrimaryButton("Timecode einbrennen", onClick = vm::startExport)
-            is ExportState.Running -> ProgressCard(export.percent, onCancel = vm::cancelExport)
-            is ExportState.Done -> DoneCard(export, onAgain = vm::resetExport)
-            is ExportState.Failed -> Column {
-                Notice("Export fehlgeschlagen: ${export.message}", isError = true, onDismiss = vm::resetExport)
-                Spacer(Modifier.height(12.dp))
-                PrimaryButton("Nochmal versuchen", onClick = vm::startExport)
+    ) { p ->
+        when (p) {
+            0 -> PrimaryButton(
+                if (batch) "${state.items.size} Videos einbrennen" else "Timecode einbrennen",
+                onClick = vm::startExport,
+            )
+            1 -> ProgressCard(state, onCancel = vm::cancelExport)
+            else -> ResultCard(state, onAgain = vm::resetExport)
+        }
+    }
+}
+
+@Composable
+private fun VideoList(state: UiState, vm: MainViewModel, onAdd: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Card)
+            .padding(vertical = 6.dp),
+    ) {
+        if (state.items.size > 1) {
+            Text(
+                "${state.items.size} VIDEOS",
+                Modifier.padding(start = 18.dp, top = 8.dp, bottom = 4.dp),
+                fontSize = 12.sp,
+                letterSpacing = 1.2.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Muted,
+            )
+        }
+        state.items.forEachIndexed { i, item ->
+            VideoRow(
+                item = item,
+                selected = i == state.selected && state.items.size > 1,
+                removable = !state.running,
+                onClick = { vm.select(i) },
+                onRemove = { vm.remove(i) },
+            )
+        }
+        if (!state.running) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !state.loading, onClick = onAdd)
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (state.loading) {
+                    CircularProgressIndicator(Modifier.size(18.dp), color = Amber, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Rounded.Add, null, tint = Amber, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    if (state.loading) "Wird geladen …" else "Weitere Videos hinzufügen",
+                    fontSize = 14.sp,
+                    color = Amber,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SettingsCard(style: TimecodeStyle, enabled: Boolean, vm: MainViewModel) {
+private fun VideoRow(
+    item: Item,
+    selected: Boolean,
+    removable: Boolean,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val v = item.video
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(if (selected) Amber.copy(alpha = 0.08f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(start = 18.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(32.dp)
+                .clip(CircleShape)
+                .background(if (selected) Amber else Color.Transparent),
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                v.name,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "${v.width}×${v.height}  ·  ${formatDuration(v.durationMs)}",
+                fontSize = 12.sp,
+                color = Muted,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        when (val s = item.status) {
+            ItemStatus.Waiting -> if (removable) {
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Entfernen", tint = Muted, modifier = Modifier.size(18.dp))
+                }
+            } else {
+                Text("wartet", fontSize = 12.sp, color = Muted, modifier = Modifier.padding(end = 12.dp))
+            }
+            is ItemStatus.Running -> Text(
+                s.percent?.let { "$it %" } ?: "…",
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                color = Amber,
+                modifier = Modifier.padding(end = 12.dp),
+            )
+            is ItemStatus.Done -> Icon(
+                Icons.Rounded.CheckCircle,
+                contentDescription = "Fertig",
+                tint = Amber,
+                modifier = Modifier.padding(end = 12.dp).size(20.dp),
+            )
+            is ItemStatus.Failed -> Icon(
+                Icons.Rounded.Warning,
+                contentDescription = "Fehlgeschlagen: ${s.message}",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(end = 12.dp).size(20.dp),
+            )
+        }
+    }
+}
+
+private fun formatDuration(ms: Long): String {
+    val s = ms / 1000
+    return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s / 60) % 60, s % 60)
+    else "%d:%02d".format(s / 60, s % 60)
+}
+
+@Composable
+private fun SettingsCard(state: UiState, video: VideoInfo, enabled: Boolean, vm: MainViewModel) {
+    val style = state.settings.style
     Column(
         Modifier
             .fillMaxWidth()
@@ -397,6 +533,18 @@ private fun SettingsCard(style: TimecodeStyle, enabled: Boolean, vm: MainViewMod
             .background(Card)
             .padding(horizontal = 18.dp, vertical = 16.dp),
     ) {
+        // Position
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Position", fontSize = 15.sp)
+                Text(style.corner.label, fontSize = 12.sp, color = Muted)
+            }
+            CornerPicker(style.corner, enabled, onPick = vm::setCorner)
+        }
+
+        Divider()
+
+        // Size
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Größe", Modifier.weight(1f), fontSize = 15.sp)
             SingleChoiceSegmentedButtonRow(Modifier.width(180.dp)) {
@@ -418,7 +566,10 @@ private fun SettingsCard(style: TimecodeStyle, enabled: Boolean, vm: MainViewMod
                 }
             }
         }
-        Spacer(Modifier.height(14.dp))
+
+        Divider()
+
+        // Background
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Hintergrund", fontSize = 15.sp)
@@ -440,6 +591,101 @@ private fun SettingsCard(style: TimecodeStyle, enabled: Boolean, vm: MainViewMod
                 ),
             )
         }
+
+        Divider()
+
+        // Resolution
+        val res = state.settings.resolution
+        val (ow, oh) = outputSize(video, res)
+        Text("Auflösung", fontSize = 15.sp)
+        Text(
+            if (state.items.size > 1) {
+                "Ausgabe für dieses Video: $ow×$oh · kleinere Videos werden nicht vergrößert"
+            } else if (res.targetFor(video) == null && res != Resolution.ORIGINAL) {
+                "Video ist schon kleiner – bleibt bei $ow×$oh"
+            } else {
+                "Ausgabe: $ow×$oh"
+            },
+            fontSize = 12.sp,
+            color = Muted,
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val largest = state.items.maxOf { minOf(it.video.width, it.video.height) }
+            Resolution.entries.forEach { r ->
+                // Hide steps that would be an upscale for every selected video.
+                val useful = r.shortSide == null || r.shortSide < largest
+                if (useful || r == res) {
+                    FilterChip(
+                        selected = r == res,
+                        onClick = { vm.setResolution(r) },
+                        enabled = enabled,
+                        label = { Text(r.label, fontSize = 13.sp) },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Amber.copy(alpha = 0.18f),
+                            selectedLabelColor = Amber,
+                            labelColor = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = enabled,
+                            selected = r == res,
+                            borderColor = Line,
+                            selectedBorderColor = Amber.copy(alpha = 0.5f),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Divider() {
+    Spacer(Modifier.height(14.dp))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+    Spacer(Modifier.height(14.dp))
+}
+
+/** A tiny video frame; tap one of its four corners. */
+@Composable
+private fun CornerPicker(selected: Corner, enabled: Boolean, onPick: (Corner) -> Unit) {
+    Box(
+        Modifier
+            .size(width = 92.dp, height = 58.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.5.dp, Line, RoundedCornerShape(10.dp))
+            .background(CardHigh),
+    ) {
+        Corner.entries.forEach { c ->
+            val align = when (c) {
+                Corner.TOP_LEFT -> Alignment.TopStart
+                Corner.TOP_RIGHT -> Alignment.TopEnd
+                Corner.BOTTOM_LEFT -> Alignment.BottomStart
+                Corner.BOTTOM_RIGHT -> Alignment.BottomEnd
+            }
+            val on = c == selected
+            Box(
+                Modifier
+                    .align(align)
+                    .size(width = 46.dp, height = 29.dp)
+                    .clickable(enabled = enabled) { onPick(c) },
+                contentAlignment = align,
+            ) {
+                Box(
+                    Modifier
+                        .padding(6.dp)
+                        .size(width = 22.dp, height = 8.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (on) Amber else Line),
+                )
+            }
+        }
     }
 }
 
@@ -458,7 +704,11 @@ private fun PrimaryButton(text: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ProgressCard(percent: Int?, onCancel: () -> Unit) {
+private fun ProgressCard(state: UiState, onCancel: () -> Unit) {
+    val index = (state.batch as? BatchState.Running)?.index ?: 0
+    val n = state.items.size
+    val current = (state.items.getOrNull(index)?.status as? ItemStatus.Running)?.percent
+    val progress = if (n > 1) state.overallProgress else (current ?: 0) / 100f
     Column(
         Modifier
             .fillMaxWidth()
@@ -467,30 +717,26 @@ private fun ProgressCard(percent: Int?, onCancel: () -> Unit) {
             .padding(18.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Wird eingebrannt …", Modifier.weight(1f), fontSize = 15.sp)
             Text(
-                percent?.let { "$it %" } ?: "",
+                if (n > 1) "Video ${index + 1} von $n wird eingebrannt …" else "Wird eingebrannt …",
+                Modifier.weight(1f),
+                fontSize = 15.sp,
+            )
+            Text(
+                "${(progress * 100).toInt()} %",
                 fontFamily = FontFamily.Monospace,
                 color = Amber,
                 fontSize = 15.sp,
             )
         }
         Spacer(Modifier.height(12.dp))
-        if (percent != null) {
-            LinearProgressIndicator(
-                progress = { percent / 100f },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                color = Amber,
-                trackColor = Line,
-                drawStopIndicator = {},
-            )
-        } else {
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                color = Amber,
-                trackColor = Line,
-            )
-        }
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+            color = Amber,
+            trackColor = Line,
+            drawStopIndicator = {},
+        )
         Spacer(Modifier.height(8.dp))
         Row {
             Text(
@@ -505,59 +751,93 @@ private fun ProgressCard(percent: Int?, onCancel: () -> Unit) {
 }
 
 @Composable
-private fun DoneCard(done: ExportState.Done, onAgain: () -> Unit) {
+private fun ResultCard(state: UiState, onAgain: () -> Unit) {
     val context = LocalContext.current
+    val done = state.doneItems
+    val failed = state.failedCount
+    val total = state.items.size
     Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(Card)
-            .border(1.dp, Amber.copy(alpha = 0.35f), RoundedCornerShape(20.dp))
+            .border(
+                1.dp,
+                if (done.isEmpty()) MaterialTheme.colorScheme.error.copy(alpha = 0.4f) else Amber.copy(alpha = 0.35f),
+                RoundedCornerShape(20.dp),
+            )
             .padding(18.dp),
     ) {
-        Text("Fertig", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Amber)
+        Text(
+            when {
+                done.isEmpty() -> "Export fehlgeschlagen"
+                total == 1 -> "Fertig"
+                failed == 0 -> "Alle $total Videos fertig"
+                else -> "${done.size} von $total Videos fertig"
+            },
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (done.isEmpty()) MaterialTheme.colorScheme.error else Amber,
+        )
         Spacer(Modifier.height(4.dp))
         Text(
-            "Gespeichert unter DCIM/Timecode/${done.fileName}",
+            when {
+                done.size == 1 && total == 1 -> "Gespeichert unter DCIM/Timecode/${done[0].fileName}"
+                done.isNotEmpty() -> "Gespeichert unter DCIM/Timecode"
+                else -> ""
+            },
             fontSize = 13.sp,
             color = Muted,
         )
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(
-                onClick = {
-                    val i = Intent(Intent.ACTION_VIEW)
-                        .setDataAndType(done.uri, "video/mp4")
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    runCatching { context.startActivity(i) }
-                },
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Color(0xFF1C1300)),
-            ) {
-                Icon(Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Abspielen")
-            }
-            OutlinedButton(
-                onClick = {
-                    val i = Intent(Intent.ACTION_SEND)
-                        .setType("video/mp4")
-                        .putExtra(Intent.EXTRA_STREAM, done.uri)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    context.startActivity(Intent.createChooser(i, null))
-                },
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, Line),
-            ) {
-                Icon(Icons.Rounded.Share, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
-                Spacer(Modifier.width(6.dp))
-                Text("Teilen", color = MaterialTheme.colorScheme.onSurface)
+        state.items.mapNotNull { it.status as? ItemStatus.Failed }.distinctBy { it.message }.take(2).forEach {
+            Spacer(Modifier.height(6.dp))
+            Text(it.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+        }
+
+        if (done.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (done.size == 1) {
+                    Button(
+                        onClick = {
+                            val i = Intent(Intent.ACTION_VIEW)
+                                .setDataAndType(done[0].uri, "video/mp4")
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            runCatching { context.startActivity(i) }
+                        },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Amber, contentColor = Color(0xFF1C1300)),
+                    ) {
+                        Icon(Icons.Rounded.PlayArrow, null, Modifier.size(20.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Abspielen")
+                    }
+                }
+                OutlinedButton(
+                    onClick = {
+                        val uris = ArrayList(done.map { it.uri })
+                        val i = if (uris.size == 1) {
+                            Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris[0])
+                        } else {
+                            Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                        }
+                            .setType("video/mp4")
+                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        context.startActivity(Intent.createChooser(i, null))
+                    },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Line),
+                ) {
+                    Icon(Icons.Rounded.Share, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (done.size > 1) "Alle teilen" else "Teilen", color = MaterialTheme.colorScheme.onSurface)
+                }
             }
         }
         TextButton(onClick = onAgain, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            Text("Andere Einstellung ausprobieren", color = Muted)
+            Text(if (done.isEmpty()) "Zurück" else "Andere Einstellung ausprobieren", color = Muted)
         }
     }
 }

@@ -1,13 +1,17 @@
 # Timecode Burner
 
 Schlanke Android-App, die einen laufenden Timecode im Format **MM:SS:mmm**
-(Minuten:Sekunden:Millisekunden) dauerhaft unten links in ein Video einbrennt.
+(Minuten:Sekunden:Millisekunden) dauerhaft in Videos einbrennt.
 
-- Video aus der Galerie wählen oder direkt in die App teilen
+- Ein oder mehrere Videos aus der Galerie wählen oder direkt in die App teilen
+- **Stapelverarbeitung:** mehrere Videos nacheinander mit denselben Einstellungen
 - Vorschau mit Schieberegler – zeigt genau, wie das Ergebnis aussieht
-- Größe S / M / L, dunkle Box oder nur Text mit Kontur
+- Position in jeder Ecke (Standard: oben links), Größe S / M / L, dunkle Box oder Text mit Kontur
+- Auflösung verkleinern: 2160p, 1440p, 1080p, 720p, 480p, 360p (nie vergrößert)
+- Alle Einstellungen bleiben gespeichert
 - Export als H.264-MP4 nach `DCIM/Timecode/` (interner Speicher), Ton bleibt erhalten
-- Hardwarebeschleunigt über [Media3 Transformer](https://developer.android.com/media/media3/transformer), kein FFmpeg, keine Berechtigungen, ca. 3 MB
+- Updates direkt in der App
+- Hardwarebeschleunigt über [Media3 Transformer](https://developer.android.com/media/media3/transformer), kein FFmpeg, ca. 3 MB
 
 Ab Android 10. HDR-Aufnahmen werden beim Export nach SDR umgerechnet.
 
@@ -53,8 +57,9 @@ Veröffentlichung im Play Store einen eigenen, geheimen Schlüssel verwenden.
 | Datei | Aufgabe |
 |---|---|
 | `TimecodeRenderer.kt` | Zeichnet das Label, alles proportional zur kürzeren Bildseite |
-| `TimecodeOverlay.kt` | Media3-Overlay, rendert das Label pro Frame und verankert es unten links |
-| `MainViewModel.kt` | Video laden, Vorschau, Export, Speichern in der Galerie |
+| `TimecodeOverlay.kt` | Media3-Overlay, rendert das Label pro Frame und verankert es in der gewählten Ecke |
+| `Settings.kt` | Auflösungsstufen, gespeicherte Einstellungen |
+| `MainViewModel.kt` | Videos laden, Vorschau, Stapel-Export, Speichern in der Galerie |
 | `MainActivity.kt` | Compose-Oberfläche |
 | `UpdateManager.kt` | Update-Prüfung, Download, Prüfsumme/Signatur, Installation |
 | `UpdateUi.kt` | Einstellungen > Updates, Hinweis-Banner |

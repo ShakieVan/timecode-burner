@@ -17,9 +17,17 @@ enum class TimecodeSize(val label: String, val factor: Float) {
     L("L", 0.075f),
 }
 
+enum class Corner(val label: String, val top: Boolean, val left: Boolean) {
+    TOP_LEFT("Oben links", true, true),
+    TOP_RIGHT("Oben rechts", true, false),
+    BOTTOM_LEFT("Unten links", false, true),
+    BOTTOM_RIGHT("Unten rechts", false, false),
+}
+
 data class TimecodeStyle(
     val size: TimecodeSize = TimecodeSize.M,
     val background: Boolean = true,
+    val corner: Corner = Corner.TOP_LEFT,
 )
 
 /** Formats milliseconds as MM:SS:mmm. Minutes keep counting past 59 (e.g. 75:12:345). */
@@ -46,7 +54,7 @@ class TimecodeRenderer(
     private val unit = min(frameWidth, frameHeight).toFloat()
     private val fontPx = max(10f, unit * style.size.factor)
 
-    /** Distance of the label from the left and bottom frame edges, in pixels. */
+    /** Distance of the label from the two nearest frame edges, in pixels. */
     val marginPx: Float = unit * 0.03f
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
@@ -100,12 +108,14 @@ class TimecodeRenderer(
         canvas.drawText(text, padH, baseline, textPaint)
     }
 
-    /** Returns a copy of [frame] with the label drawn bottom-left, for the in-app preview. */
+    /** Returns a copy of [frame] with the label drawn in the chosen corner, for the in-app preview. */
     fun compose(frame: Bitmap, text: String): Bitmap {
         val out = frame.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(out)
         canvas.save()
-        canvas.translate(marginPx, out.height - marginPx - height)
+        val x = if (style.corner.left) marginPx else out.width - marginPx - width
+        val y = if (style.corner.top) marginPx else out.height - marginPx - height
+        canvas.translate(x, y)
         canvas.clipRect(0, 0, width, height)
         // Draw onto a temporary layer so CLEAR only affects the label area.
         val label = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)

@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.shakievan.timecode"
         minSdk = 29
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
     }
 
     // Shared, public signing key so that local and CI builds can update each other.

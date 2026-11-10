@@ -10,7 +10,7 @@ import androidx.media3.effect.StaticOverlaySettings
 
 /**
  * Media3 overlay that redraws a small label bitmap for every frame and anchors it to the
- * bottom-left corner. Only the label (not a full-frame bitmap) is uploaded per frame.
+ * chosen corner. Only the label (not a full-frame bitmap) is uploaded per frame.
  */
 @UnstableApi
 class TimecodeOverlay(
@@ -32,13 +32,15 @@ class TimecodeOverlay(
         bitmap = Bitmap.createBitmap(renderer.width, renderer.height, Bitmap.Config.ARGB_8888)
         canvas = Canvas(bitmap)
         lastText = null
-        // Anchors are in normalized device coordinates: (-1, -1) is the bottom-left corner.
+        // Anchors are in normalized device coordinates: (-1, -1) is bottom-left, (1, 1) top-right.
+        val sx = if (style.corner.left) -1f else 1f
+        val sy = if (style.corner.top) 1f else -1f
         settings = StaticOverlaySettings.Builder()
             .setBackgroundFrameAnchor(
-                -1f + 2f * renderer.marginPx / w,
-                -1f + 2f * renderer.marginPx / h,
+                sx * (1f - 2f * renderer.marginPx / w),
+                sy * (1f - 2f * renderer.marginPx / h),
             )
-            .setOverlayFrameAnchor(-1f, -1f)
+            .setOverlayFrameAnchor(sx, sy)
             .build()
     }
 
