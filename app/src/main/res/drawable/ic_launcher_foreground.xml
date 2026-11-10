@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Video frame with a timecode tag in the bottom-left corner. Safe zone: 18..90 of 108. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- frame outline -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#E8EAED"
+        android:strokeWidth="3.5"
+        android:pathData="M33,35 L75,35 Q80,35 80,40 L80,68 Q80,73 75,73 L33,73 Q28,73 28,68 L28,40 Q28,35 33,35 Z" />
+
+    <!-- play triangle -->
+    <path
+        android:fillColor="#E8EAED"
+        android:pathData="M51,44 L62,51 L51,58 Z" />
+
+    <!-- timecode tag -->
+    <path
+        android:fillColor="#FFB547"
+        android:pathData="M35,62 L55,62 Q57.5,62 57.5,64.5 L57.5,66.5 Q57.5,69 55,69 L35,69 Q32.5,69 32.5,66.5 L32.5,64.5 Q32.5,62 35,62 Z" />
+    <path
+        android:fillColor="#15181E"
+        android:pathData="M36,64.5 h3 v2 h-3 Z M41,64.5 h3 v2 h-3 Z M46,64.5 h2 v2 h-2 Z M50,64.5 h4 v2 h-4 Z" />
+</vector>
